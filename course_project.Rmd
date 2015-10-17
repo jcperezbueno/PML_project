@@ -6,6 +6,7 @@ output: html_document
 ---
 
 
+
 ## Introduction
 
 The objective of the project is to prepare a classification model to distinguish among the five different classes defining how well six people are performing a fitness activity.
