@@ -1,0 +1,188 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Carlos Perez"
+date: "16 de octubre de 2015"
+output: html_document
+---
+
+
+## Introduction
+
+The objective of the project is to prepare a classification model to distinguish among the five different classes defining how well six people are performing a fitness activity.
+
+The information is based on the data colected from different sensors in the body of people performing the activity. 
+
+In order to prepare the model requested, the first step is to load the two files with the data
+
+```
+training = read.csv("pml-training.csv")
+testing = read.csv("pml-testing.csv")
+```
+
+The training set contains 19622 observations with 160 variables plus the target variable called "classe"
+
+The testing set only contains 20 observations (also with 160 variables because although the "classe" variable is not present it is included a variable called "problem_id"). This is the set where we must predict the "classe".
+
+
+## Data preparation
+
+After some basic exploration of the data it is easy to check that
+
+- The test set only contains observations with the variable "new_window" equals to "no". On the other hand the training set contains some observations with that variable valued at "yes".
+
+- Those observations (``new_window=="yes"``) are somehow different to the rest: they provide values to variables that are blanked or NA in the other observations
+
+- The initial seven variables contain some observation identification (number of the observation, name of the person executing the activity, date and time, etc.). These variables are assumed not to have any predictive power for the problem at hand.
+
+For those resasons and in order to have a clean training data set I execute the following code
+
+````
+invalid_variables = c(which(apply(training,2,sumisna) == 19216),which(apply(training,2,sumisblank) == 19216))
+
+training = training[,-invalid_variables]
+training = training[training$new_window=="no",]
+training = training[,-(1:7)]
+````
+
+The first line of code identifies which variables are typically NA or blank (the functions sumisna and sumisblank are defined through 
+
+````sumisna=function(x){sum(is.na(x))}
+sumisblank = function(x){sum(x=="")}
+````
+
+The next line those variables from the data set. The next line keeps only the observations with ``new_window=="no"`` and the last line removes the identification variables. With all this the new training set contains 19216 observations of 53 variables. 
+
+## Model preparation
+
+To prepare the model first we split the training set in two subsets. One for model training (70% of observations) and the other for validation (30% of observations). This is done through the following commands
+
+````
+set.seed(300)
+inTrain = createDataPartition(training$classe, p=0.7,list = FALSE)
+training_1 = training[inTrain,]
+training_2 = training[-inTrain,]
+````
+
+``training_1`` (training) contains 13453 observations and ``training_2`` (validation) contains 5763 observations.
+
+Now, given that the computational cost of the model can be high (I will use random forest), I preprocess the data to reduce the number of variables. This is done through principal component analysis (PCA).
+
+````
+training_1_pre = predict(preProcess(training_1[,-53],method="pca",thresh=0.90),training_1)
+
+
+training_2_pre = predict(preProcess(training_1[,-53],method="pca",thresh=0.90),training_2)
+````
+
+Let us notice that the transformation of the validation set is done using the same algorith than for the training set: the validation observations cannot be used in advance to validation. Whith this transformation we have reduced from the initial 53 variables to 19 variables that keep 90% of the information.
+
+Now we train the model with the folowing command
+
+````
+set.seed(100)
+mod2=train(classe~.,training_1_pre,method="rf")
+````
+
+This command run the randomForest algorithm 25 times to fine tune the internal parameter of the model ``mtry``. The largest accuracy is got for ``mtry=2``:
+
+````
+mod2$results
+````
+````
+  mtry  Accuracy     Kappa  AccuracySD     KappaSD
+1    2 0.9589339 0.9480147 0.003068722 0.003887676
+2   10 0.9515012 0.9386156 0.003552063 0.004497813
+3   18 0.9400830 0.9241681 0.004750170 0.006040160
+````
+````
+mod2$finalModel
+
+Call:
+ randomForest(x = x, y = y, mtry = param$mtry) 
+               Type of random forest: classification
+                     Number of trees: 500
+No. of variables tried at each split: 2
+
+        OOB estimate of  error rate: 2.84%
+Confusion matrix:
+     A    B    C    D    E class.error
+A 3787   10   18   10    5  0.01122715
+B   49 2497   49    2    6  0.04072224
+C   13   37 2268   22    7  0.03365999
+D    7    3   92 2095    6  0.04902406
+E    1    9   20   16 2424  0.01862348
+````
+
+With an in-sample accuracy close to 96%.
+
+
+## Model validation
+
+To validate that the results are not consequence of overfitting we may chech this with the validation set (``training_2_pre``) that we reserved to validate model results (cross validation)
+
+To do it we compute the confusion matrix with the commands
+
+````
+pred2 = predict(mod2,training_2_pre)
+confusionMatrix(pred2,training_2$classe)
+````
+ And we obtain the results 
+
+```` 
+ Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1619   25    4    5    0
+         B    5 1065   17    3    1
+         C    9   20  972   43    6
+         D    5    2   11  892    6
+         E    3    3    1    1 1045
+
+Overall Statistics
+                                          
+               Accuracy : 0.9705          
+                 95% CI : (0.9658, 0.9747)
+    No Information Rate : 0.2847          
+    P-Value [Acc > NIR] : < 2.2e-16       
+                                          
+                  Kappa : 0.9627          
+ Mcnemar's Test P-Value : 1.555e-06       
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.9866   0.9552   0.9672   0.9449   0.9877
+Specificity            0.9918   0.9944   0.9836   0.9950   0.9983
+Pos Pred Value         0.9794   0.9762   0.9257   0.9738   0.9924
+Neg Pred Value         0.9946   0.9893   0.9930   0.9893   0.9972
+Prevalence             0.2847   0.1935   0.1744   0.1638   0.1836
+Detection Rate         0.2809   0.1848   0.1687   0.1548   0.1813
+Detection Prevalence   0.2868   0.1893   0.1822   0.1589   0.1827
+Balanced Accuracy      0.9892   0.9748   0.9754   0.9700   0.9930
+````
+
+The accuracy is even slighly higher than in the training set. This is not very frequent (but it can happen depending on the composition of both training and validation set).
+
+To try to get a better undestading of potential results on the test set, I sample subsets of 20 observations from the validation (``training_2``) to check the accuracy there. I repeat the process 100 times with the code 
+
+````
+accuracy= NULL
+for (i in (1:100)){
+      set.seed(i)
+      ind = sample(nrow(training_2_pre),20,FALSE)
+      pred = predict(mod2,training_2_pre[ind,])
+      accuracy[i]=confusionMatrix(pred,training_2$classe[ind])$overall[1]
+}
+````
+
+By observing frequencies 
+
+````
+table(accuracy)
+accuracy
+0.85  0.9 0.95    1 
+   2   10   41   47 
+````
+
+So with 98% probability the accuracy in a sample of 20 observations should be 90% or higher. This offers a high confidence in the accuracy of the model.
